@@ -77,7 +77,7 @@ def flip_img(img):
     return img[:, ::-1].copy()
 
 
-def rotate_img(_img, _points_vec):
+def rotate_img(_img):
     angle = 20 * np.random.random() - 10
     img = transform.rotate(_img, angle=angle)
 
@@ -90,16 +90,16 @@ def frame_image(img):
     left, right = np.random.randint(0, factor * width), np.random.randint(width - factor * width, width)
     low, top = np.random.randint(0, factor * height), np.random.randint(height - factor * height, height)
 
-    new_img = img[low:top, left:right]
+    new_img = img[low:top, left:right, ...]
 
     return new_img
 
 
 PERMUTATIONS = [
     lambda img: pad_and_scale(img)[0],
-    lambda img: flip_img(*pad_and_scale(img)[0]),
-    lambda img: rotate_img(*pad_and_scale(img)[0]),
-    lambda img: pad_and_scale(*frame_image(img))[0]
+    lambda img: flip_img(pad_and_scale(img)[0]),
+    lambda img: rotate_img(pad_and_scale(img)[0]),
+    lambda img: pad_and_scale(frame_image(img))[0]
 ]
 
 
@@ -131,7 +131,8 @@ def read_generator(y_csv, train_img_dir, batch_size, permutations=False, shuffle
             else:
                 img = pad_and_scale(img)[0]
 
-            batch_features[i, ...], batch_labels[i] = img.reshape((IMAGE_HEIGHT, IMAGE_WIDTH, channels)), y_csv[name]
+            batch_labels[i] = np.zeros(CLASSES_NUM)
+            batch_features[i, ...], batch_labels[i][y_csv[name]] = img.reshape((IMAGE_HEIGHT, IMAGE_WIDTH, channels)), 1
 
             if ind % batch_size == batch_size - 1 or ind == len(names) - 1:
                 yield batch_features, batch_labels
