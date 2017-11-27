@@ -1,24 +1,129 @@
-from os.path import join
+import numpy as np
+
+from keras.applications.inception_v3 import InceptionV3
+from keras.models import Model
+from keras.optimizers import Adam
+from keras.layers import Dense, GlobalAveragePooling2D
+from keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 from os import listdir
+
+from os.path import join
+
 from random import choice
 
 from skimage.color import grey2rgb
 from skimage.io import imread
 from skimage.util import pad
 from skimage import transform
-import numpy as np
+
 
 IMAGE_WIDTH = 299
 IMAGE_HEIGHT = 299
 CLASSES_NUM = 50
+CHANNELS = 3
+AS_GREY = False
 
 
-def train_classifier():
-    pass
+def read_test(y, img_dir='./public_data/00_input/train/images/'):
+    test = np.zeros((len(y), IMAGE_HEIGHT, IMAGE_WIDTH, CHANNELS))
+    y_test = np.zeros((len(y), CLASSES_NUM))
 
-def classify():
-    pass
+    for i, img_name in enumerate(y.keys()):
+        img = imread(join(img_dir, img_name), as_grey=AS_GREY)
 
+        if len(img.shape) == 2 and not AS_GREY:
+            img = grey2rgb(img)
+
+        img, _ = pad_and_scale(img)
+        y_test[i] = np.zeros(CLASSES_NUM)
+
+        test[i, ...] = img.reshape((IMAGE_HEIGHT, IMAGE_WIDTH, CHANNELS))
+        y_test[i][y[img_name]] = 1
+
+    return y_test, test
+
+
+def train_classifier(train_data, img_dir, fast_train=True):
+    return
+    # checkpoint_callback = ModelCheckpoint(filepath='checkpoint.hdf5', monitor='val_loss', save_best_only=True,
+    #                                       mode='auto')
+    # early_callback = EarlyStopping(patience=15)
+    # lr_callback = ReduceLROnPlateau(patience=5)
+
+    # create the base pre-trained model
+    base_model = InceptionV3(weights='imagenet', include_top=False)
+
+    # add a global spatial average pooling layer
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    # let's add a fully-connected layer
+    x = Dense(512, activation='relu')(x)
+    x = Dense(512, activation='relu')(x)
+    # and a logistic layer -- let's say we have 200 classes
+    predictions = Dense(CLASSES_NUM, activation='softmax')(x)
+
+    # this is the model we will train
+    model = Model(inputs=base_model.input, outputs=predictions)
+
+    # first: train only the top layers (which were randomly initialized)
+    # i.e. freeze all convolutional InceptionV3 layers
+    for layer in base_model.layers:
+        layer.trainable = False
+
+    # compile the model (should be done *after* setting layers to non-trainable)
+    model.compile(optimizer=Adam(lr=0.00001), loss='categorical_crossentropy', metrics=['accuracy'])
+
+    # train the model on the new data for a few epochs
+    model.fit_generator(
+        read_generator(train_data, img_dir, 32, grey=False, permutations=True),
+        steps_per_epoch=len(train_data) // 32,
+        epochs=1 if fast_train else 5,
+        # callbacks=[checkpoint_callback, early_callback, lr_callback],
+        # validation_data=(x_val, y_val),
+        verbose=1
+    )
+
+    for layer in model.layers[:249]:
+        layer.trainable = False
+    for layer in model.layers[249:]:
+        layer.trainable = True
+
+    # we need to recompile the model for these modifications to take effect
+
+    model.compile(optimizer=Adam(lr=0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
+
+    # we train our model again (this time fine-tuning the top 2 inception blocks
+    # alongside the top Dense layers
+    model.fit_generator(
+        read_generator(train_data, img_dir, 32, grey=False, permutations=True,
+                       shuffle=True),
+        steps_per_epoch=len(train_data) // 32,
+        epochs=1 if fast_train else 100,
+        # callbacks=[checkpoint_callback, early_callback, lr_callback],
+    )
+
+
+def classify(model, img_dir):
+    print('yupi ka yey')
+    dclasses = get_dummy_classes(img_dir)
+
+    pred = model.predict_generator(
+        read_generator(
+            dclasses,
+            img_dir,
+            30,
+            permutations=False,
+            shuffle=False,
+            grey=False
+        ),
+        len(dclasses) // 30
+    )
+
+    return {name: pr for pr, name in zip(np.argmax(pred, axis=1), dclasses)}
+
+
+def get_dummy_classes(img_dir):
+    return {img_name: 0 for img_name in listdir(img_dir)}
 
 
 def scale_image(img):
